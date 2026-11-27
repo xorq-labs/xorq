@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import itertools
 import time
 from collections.abc import Iterator
@@ -17,7 +18,7 @@ from xorq.common.utils.logging_utils import get_logger
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
-from xorq.flight.enums import UploadMode
+from xorq.flight.enums import UPLOAD_ABORTED, UploadMode
 from xorq.vendor import ibis
 
 
@@ -258,7 +259,9 @@ class FlightClient:
     ) -> None:
         """Upload a ``pa.RecordBatchReader``; see ``upload_table``.
 
-        Parameters, modes and errors are as for ``upload_table``.
+        Parameters, modes and errors are as for ``upload_table``. If
+        ``reader`` raises, the upload is aborted, so the server writes
+        nothing, and the reader's exception propagates.
 
         Contract
         --------
@@ -273,8 +276,16 @@ class FlightClient:
             options=self._options,
         )
 
-        for batch in copy_rbr_batches(reader):
-            writer.write_batch(batch)
+        try:
+            for batch in copy_rbr_batches(reader):
+                writer.write_batch(batch)
+        except BaseException:
+            # closing ends the stream as if complete, so tell the server first
+            with contextlib.suppress(pa.ArrowException):
+                writer.write_metadata(UPLOAD_ABORTED)
+            with contextlib.suppress(pa.ArrowException):
+                writer.close()
+            raise
         writer.done_writing()
         writer.close()
 

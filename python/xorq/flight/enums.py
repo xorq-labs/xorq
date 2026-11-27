@@ -13,3 +13,7 @@ class UploadMode(StrEnum):
     CREATE = "create"
     APPEND = "append"
     REPLACE = "replace"
+
+
+# app_metadata a client sends on a do_put stream to abandon the upload
+UPLOAD_ABORTED = b"xorq:upload-aborted"
